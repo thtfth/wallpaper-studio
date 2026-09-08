@@ -1,0 +1,2074 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Wallpaper Studio</title>
+<style>
+  :root{
+    --bg: #15181a;
+    --panel: #1d2124;
+    --panel-2: #23282b;
+    --line: #2f3538;
+    --ink: #e9edee;
+    --ink-dim: #9aa4a8;
+    --accent: #3fb8a6;
+    --accent-dim: #2c7d72;
+    --warn: #e0a458;
+    --err: #e08a7a;
+    --sidebar-w: 340px;
+    --export-w: 310px;
+    font-family: -apple-system, "Segoe UI", Inter, Roboto, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    height:100vh; overflow:hidden;
+  }
+  .app{ display:flex; height:100vh; }
+  body.resizing{ cursor:col-resize; user-select:none; }
+  body.resizing *{ cursor:col-resize !important; }
+
+  /* ---- Sidebar ---- */
+  /* Fixed basis, but capped as a share of the viewport: a hard min-width is
+     what used to shove the export panel off the right edge on small screens. */
+  .sidebar{
+    flex:0 0 var(--sidebar-w); width:var(--sidebar-w); max-width:38vw;
+    background:var(--panel);
+    border-right:1px solid var(--line);
+    display:flex; flex-direction:column;
+    overflow-y:auto;
+  }
+
+  /* ---- Draggable panel edges ---- */
+  .resizer{
+    flex:0 0 6px; width:6px; cursor:col-resize; background:transparent;
+    position:relative; z-index:5; touch-action:none;
+  }
+  .resizer::after{
+    content:''; position:absolute; inset:0 2px; border-radius:2px;
+    background:transparent; transition:background 0.12s;
+  }
+  .resizer:hover::after, .resizer.active::after{ background:var(--accent-dim); }
+  .brand{ padding:20px 20px 14px; border-bottom:1px solid var(--line); }
+  .brand h1{ margin:0; font-size:17px; font-weight:600; letter-spacing:0.2px; }
+  .brand p{ margin:4px 0 0; font-size:12.5px; color:var(--ink-dim); }
+
+  .section{ padding:16px 20px; border-bottom:1px solid var(--line); }
+  .section h2{
+    margin:0 0 12px; font-size:11.5px; font-weight:600;
+    color:var(--ink-dim); text-transform:uppercase; letter-spacing:0.6px;
+  }
+  .field{ margin-bottom:10px; }
+  .field label{ display:block; font-size:12.5px; color:var(--ink-dim); margin-bottom:5px; }
+  select, input[type=text], input[type=number], textarea{
+    width:100%; background:var(--panel-2); border:1px solid var(--line);
+    color:var(--ink); border-radius:7px; padding:8px 10px; font-size:13.5px;
+    font-family:inherit;
+  }
+  textarea{ resize:vertical; min-height:52px; }
+  input[type=range]{ width:100%; accent-color:var(--accent); }
+  input[type=color]{
+    width:36px; height:30px; border:1px solid var(--line); border-radius:6px;
+    padding:0; background:none; cursor:pointer;
+  }
+  /* flex-basis lets a row drop onto two lines rather than crushing its
+     buttons; min-width:0 lets long labels wrap instead of overflowing. */
+  .row{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .row > *{ flex:1 1 110px; min-width:0; }
+  .row input[type=color]{ flex:0 0 36px; }
+  .row button.small{ flex:1 1 auto; }
+  .align-row button.small{ flex:1 1 84px; }
+
+  button{
+    font-family:inherit; cursor:pointer; border-radius:7px;
+    font-size:13px; font-weight:600; padding:9px 12px;
+    background:var(--panel-2); color:var(--ink); border:1px solid var(--line);
+    white-space:normal; line-height:1.25; min-height:36px;
+  }
+  button:hover{ border-color:#454c50; }
+  button:disabled{ opacity:0.5; cursor:not-allowed; }
+  button.primary{ background:var(--accent); color:#0d1413; border:none; }
+  button.primary:hover{ background:#4ac6b2; }
+  button.ghost{ background:none; border:1px solid var(--line); }
+  button.small{ padding:6px 9px; font-size:12px; }
+  button.danger{ color:var(--err); }
+  .full{ width:100%; }
+
+  .upload-drop{
+    border:1.5px dashed var(--line); border-radius:8px; padding:16px;
+    text-align:center; font-size:12.5px; color:var(--ink-dim); cursor:pointer;
+  }
+  .upload-drop:hover{ border-color:var(--accent); color:var(--ink); }
+  .upload-drop input{ display:none; }
+  .upload-drop.dragover{
+    border-color:var(--accent); border-style:solid;
+    background:rgba(63,184,166,0.10); color:var(--ink);
+  }
+  .stage.dragover .canvas-wrap{ outline:2px solid var(--accent); outline-offset:6px; }
+
+  .path-box{
+    font-size:11.5px; color:var(--ink-dim); background:#0f1213;
+    border:1px solid var(--line); border-radius:7px; padding:7px 9px;
+    word-break:break-all; line-height:1.45; margin-bottom:6px;
+  }
+
+  .layer-thumb{
+    width:100%; max-height:110px; object-fit:contain; border-radius:6px;
+    border:1px solid var(--line); background:#0f1213; margin-bottom:8px; display:block;
+  }
+  .layer{
+    background:var(--panel-2); border:1px solid var(--line); border-radius:9px;
+    padding:12px; margin-bottom:10px;
+  }
+  .layer.selected{ border-color:var(--accent); }
+  .layer-head{
+    display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;
+    cursor:pointer;
+  }
+  .layer-head span{ font-size:12.5px; color:var(--ink-dim); }
+  .layer-body > .field:last-child{ margin-bottom:0; }
+  .add-layer-btn{ margin-top:2px; }
+
+  .stage{
+    flex:1; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; padding:24px; overflow:auto; position:relative;
+  }
+  .canvas-wrap{
+    box-shadow:0 20px 60px rgba(0,0,0,0.45); border-radius:4px; overflow:hidden;
+    position:relative; background:#000;
+  }
+  canvas{ display:block; cursor:grab; touch-action:none; }
+  canvas.dragging{ cursor:grabbing; }
+  .stage-footer{
+    margin-top:16px; display:flex; gap:16px; align-items:center; justify-content:center;
+    color:var(--ink-dim); font-size:12.5px; flex-wrap:wrap;
+  }
+
+  .exportbar{
+    flex:0 0 var(--export-w); width:var(--export-w); max-width:38vw;
+    background:var(--panel);
+    border-left:1px solid var(--line); display:flex; flex-direction:column;
+    overflow-y:auto;
+  }
+  .result-img{
+    width:100%; border-radius:8px; border:1px solid var(--line); margin-top:8px;
+  }
+  code.block{
+    display:block; white-space:pre-wrap; background:#0f1213; border:1px solid var(--line);
+    border-radius:7px; padding:10px; font-size:11px; line-height:1.5; color:#b7e8de;
+    max-height:150px; overflow-y:auto; margin-top:8px;
+  }
+  .steps{ font-size:12px; color:var(--ink-dim); line-height:1.6; margin:8px 0 0; padding-left:18px; }
+  .note{
+    font-size:12px; color:var(--ink-dim); background:var(--panel-2);
+    border:1px solid var(--line); border-radius:8px; padding:10px; margin-top:10px; line-height:1.5;
+  }
+  .status{
+    display:flex; align-items:center; gap:8px; font-size:12.5px; margin-top:10px;
+    padding:8px 10px; border-radius:8px; background:var(--panel-2); border:1px solid var(--line);
+  }
+  .dot{ width:8px; height:8px; border-radius:50%; background:var(--ink-dim); flex-shrink:0; }
+  .dot.on{ background:var(--accent); }
+  .dot.off{ background:var(--err); }
+  .toast{
+    font-size:12.5px; padding:8px 10px; border-radius:8px; margin-top:8px; display:none;
+  }
+  .toast.ok{ display:block; background:rgba(63,184,166,0.14); color:#a8e6dc; border:1px solid var(--accent-dim); }
+  .toast.err{ display:block; background:rgba(224,138,122,0.14); color:#f2beb2; border:1px solid #7a4238; }
+  .toast.info{ display:block; background:var(--panel-2); color:var(--ink-dim); border:1px solid var(--line); }
+
+  /* Below this width three side-by-side columns can't all fit, so they stack
+     and the page scrolls instead of pushing the export panel out of view. */
+  @media (max-width: 900px){
+    body{ height:auto; overflow-y:auto; }
+    .app{ flex-direction:column; height:auto; }
+    .sidebar, .exportbar{
+      flex:0 0 auto; width:100%; max-width:none;
+      border-right:none; border-left:none;
+      border-bottom:1px solid var(--line);
+      overflow:visible;
+    }
+    .resizer{ display:none; }
+    .stage{
+      flex:0 0 auto; height:58vh; min-height:300px;
+      padding:16px; border-bottom:1px solid var(--line);
+    }
+    .stage-footer{ margin-top:10px; font-size:12px; }
+  }
+
+  @media (max-width: 460px){
+    .section{ padding:14px; }
+    .brand{ padding:16px 14px 12px; }
+    .row{ gap:8px; }
+    .row > *{ flex:1 1 100%; }        /* one control per line, nothing clipped */
+    .row input[type=color]{ flex:0 0 44px; }
+    .align-row button.small{ flex:1 1 100%; }
+    .field label, .steps, .note, .status, .toast{ font-size:12.5px; }
+    .section h2{ font-size:12px; }
+    button.small{ font-size:12.5px; }
+    .stage{ height:46vh; min-height:220px; padding:12px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <div class="sidebar">
+    <div class="brand">
+      <h1>Wallpaper Studio</h1>
+      <p>Design it here, exactly as it'll look on your screen.</p>
+    </div>
+
+    <div class="section">
+      <h2>Canvas</h2>
+      <div class="field">
+        <label>Resolution</label>
+        <select id="resSelect">
+          <option value="1920x1080">Desktop — 1920 × 1080</option>
+          <option value="2560x1440">Desktop — 2560 × 1440 (QHD)</option>
+          <option value="3840x2160">Desktop — 3840 × 2160 (4K)</option>
+          <option value="1170x2532">Phone — 1170 × 2532</option>
+          <option value="1284x2778">Phone — 1284 × 2778</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Background color (used where image doesn't cover)</label>
+        <input type="color" id="bgColor" value="#15181a">
+      </div>
+      <div class="upload-drop" id="dropZone">
+        <span id="dropLabel">Drop an image here, or click to browse</span>
+        <input type="file" id="fileInput" accept="image/*">
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <button class="ghost small" id="clearImgBtn">Remove image</button>
+        <select id="fitSelect" style="max-width:130px;">
+          <option value="cover">Fill (cover)</option>
+          <option value="contain">Fit (contain)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Layers</h2>
+      <div id="layerList"></div>
+      <button class="full primary add-layer-btn" id="addTextBtn">+ Add text layer</button>
+      <button class="full ghost add-layer-btn" id="addImageBtn" style="margin-top:8px;">+ Add image layer</button>
+      <button class="full ghost add-layer-btn" id="addHomeworkBtn" style="margin-top:8px;">+ Add homework section</button>
+      <input type="file" id="imageLayerInput" accept="image/*" style="display:none;">
+    </div>
+  </div>
+
+  <div class="resizer" id="sidebarResizer" title="Drag to resize this panel"></div>
+
+  <div class="stage" id="stage">
+    <div class="canvas-wrap">
+      <canvas id="mainCanvas"></canvas>
+    </div>
+    <div class="stage-footer">
+      <span>Drag any text directly on the canvas to reposition it — it'll snap to center and other layers. Hold Alt to disable, or arrow keys to nudge 1px (Shift = 10px). Drop an image here to add it as a layer, and drag its corner grip to resize.</span>
+      <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+        <input type="checkbox" id="snapToggle" checked style="accent-color:var(--accent);width:auto;">
+        Snap guides
+      </label>
+    </div>
+  </div>
+
+  <div class="resizer" id="exportResizer" title="Drag to resize this panel"></div>
+
+  <div class="exportbar">
+    <div class="section">
+      <h2>Local helper</h2>
+      <p style="font-size:12.5px;color:var(--ink-dim);margin:0 0 10px;">
+        A tiny local script gives this page permission to actually change your wallpaper — something no website can do on its own.
+      </p>
+      <div class="status">
+        <span class="dot" id="statusDot"></span>
+        <span id="statusText">Checking for local helper…</span>
+      </div>
+      <div id="setupHelp">
+        <button class="full ghost" id="downloadServerBtn" style="margin-top:8px;">Download helper script (.py)</button>
+        <button class="full ghost" id="downloadBatBtn" style="margin-top:8px;">Download launcher (start.bat, Windows)</button>
+        <button class="full ghost" id="downloadCommandBtn" style="margin-top:8px;">Download launcher (start.command, macOS &amp; Linux)</button>
+        <ol class="steps">
+          <li>Keep all four files in one folder: this HTML file, <code style="color:#b7e8de;">wallpaper_server.py</code>, <code style="color:#b7e8de;">start.bat</code> and <code style="color:#b7e8de;">start.command</code>.</li>
+          <li><strong>Windows:</strong> double-click <code style="color:#b7e8de;">start.bat</code>.</li>
+          <li><strong>macOS and Linux:</strong> double-click <code style="color:#b7e8de;">start.command</code>. If macOS opens it in TextEdit, it lost its executable bit on download — run <code style="color:#b7e8de;">chmod +x start.command</code> in Terminal once.</li>
+          <li>Either way the server starts, opens this page for you, and stops when you close its window.</li>
+          <li>The helper needs Python 3. If it isn't installed, the launcher says so and offers to get it for you rather than failing silently.</li>
+          <li>Come back here (or reload from that URL) — the dot above turns teal when it's connected.</li>
+        </ol>
+      </div>
+      <div class="note" id="frozenHelp" style="display:none;">
+        You're running the packaged build, so there's nothing to install — the helper is inside the app you launched. Close its window to stop it.
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>Preferences</h2>
+      <p style="font-size:12.5px;color:var(--ink-dim);margin:0 0 10px;">
+        Everything — every section's text, font, size, color, position, saved titles, canvas settings — autosaves to the local helper a moment after you stop editing, and reloads automatically next time it's running.
+      </p>
+      <div class="row">
+        <button class="ghost small full" id="saveNowBtn">Save now</button>
+        <button class="ghost small full" id="reloadPrefsBtn">Reload autosave</button>
+      </div>
+      <div class="toast" id="prefsToast"></div>
+    </div>
+
+    <div class="section">
+      <h2>Save states</h2>
+      <p style="font-size:12.5px;color:var(--ink-dim);margin:0 0 10px;">
+        Keep up to 5 snapshots you can come back to. Each one is named with the date you saved it; saving a sixth replaces the oldest.
+      </p>
+      <div class="field">
+        <select id="slotSelect"><option value="">No saved states yet</option></select>
+      </div>
+      <div class="row">
+        <button class="ghost small full" id="saveStateBtn">Save state</button>
+        <button class="ghost small full" id="loadStateBtn">Load save state</button>
+      </div>
+      <div class="row" style="margin-top:8px;">
+        <button class="ghost small full danger" id="deleteStateBtn">Delete selected</button>
+      </div>
+      <div class="toast" id="slotToast"></div>
+    </div>
+
+    <div class="section">
+      <h2>Folders</h2>
+      <p style="font-size:12.5px;color:var(--ink-dim);margin:0 0 10px;">
+        Everything this app writes lives beside the scripts, in subfolders of the app's own folder. Your wallpaper is backed up on every start, and every generated image lands here. Each folder keeps its 10 newest files.
+      </p>
+      <div class="path-box" id="appDirBox">—</div>
+
+      <div class="field">
+        <label>Wallpaper backups</label>
+        <div class="path-box" id="wallpaperDirBox">—</div>
+        <div class="row">
+          <button class="ghost small full" id="pickWallpaperDirBtn">Change…</button>
+          <button class="ghost small full" id="openWallpaperBtn">Open User Wallpaper Folder</button>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Generated images</label>
+        <div class="path-box" id="generatedDirBox">—</div>
+        <div class="row">
+          <button class="ghost small full" id="pickGeneratedDirBtn">Change…</button>
+          <button class="ghost small full" id="openGeneratedBtn">Open Generated Folder</button>
+        </div>
+      </div>
+
+      <div class="field" id="manualPathField" style="display:none;">
+        <label>Type a folder path instead</label>
+        <input type="text" id="manualPathInput" placeholder="A folder path, e.g. Generated">
+        <div class="row" style="margin-top:6px;">
+          <button class="ghost small full" id="manualPathSaveBtn">Use this folder</button>
+          <button class="ghost small full" id="manualPathCancelBtn">Cancel</button>
+        </div>
+      </div>
+
+      <div class="row" style="margin-top:2px;">
+        <button class="ghost small full" id="resetFoldersBtn">Move both back into the app folder</button>
+      </div>
+
+      <div class="toast" id="folderToast"></div>
+    </div>
+
+    <div class="section">
+      <h2>Generate</h2>
+      <p style="font-size:12.5px;color:var(--ink-dim);margin:0 0 10px;">
+        Exports exactly what's in the preview — same renderer, same pixels — straight into your generated folder.
+      </p>
+      <button class="full primary" id="generateBtn">Generate image</button>
+      <div class="toast" id="generateToast"></div>
+      <img id="resultImg" class="result-img" style="display:none;">
+      <button class="full ghost" id="downloadBtn" style="display:none;margin-top:8px;">Download a copy to browser downloads</button>
+
+      <button class="full primary" id="applyBtn" style="margin-top:10px;display:none;">Apply as wallpaper now</button>
+      <div class="toast" id="applyToast"></div>
+      <div class="note">
+        "Apply" backs up your <em>current</em> wallpaper first, then sets this one — both automatic, via the local helper above.
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function(){
+  const canvas = document.getElementById('mainCanvas');
+  const ctx = canvas.getContext('2d');
+  const resSelect = document.getElementById('resSelect');
+  const bgColorInput = document.getElementById('bgColor');
+  const fitSelect = document.getElementById('fitSelect');
+  const fileInput = document.getElementById('fileInput');
+  const dropZone = document.getElementById('dropZone');
+  const dropLabel = document.getElementById('dropLabel');
+  const clearImgBtn = document.getElementById('clearImgBtn');
+  const layerList = document.getElementById('layerList');
+  const addTextBtn = document.getElementById('addTextBtn');
+  const addHomeworkBtn = document.getElementById('addHomeworkBtn');
+  const addImageBtn = document.getElementById('addImageBtn');
+  const imageLayerInput = document.getElementById('imageLayerInput');
+  const generateBtn = document.getElementById('generateBtn');
+  const resultImg = document.getElementById('resultImg');
+  const downloadBtn = document.getElementById('downloadBtn');
+  const applyBtn = document.getElementById('applyBtn');
+  const applyToast = document.getElementById('applyToast');
+  const statusDot = document.getElementById('statusDot');
+  const statusText = document.getElementById('statusText');
+  const downloadServerBtn = document.getElementById('downloadServerBtn');
+  const downloadBatBtn = document.getElementById('downloadBatBtn');
+  const downloadCommandBtn = document.getElementById('downloadCommandBtn');
+  const snapToggle = document.getElementById('snapToggle');
+  const setupHelp = document.getElementById('setupHelp');
+  const frozenHelp = document.getElementById('frozenHelp');
+  const saveNowBtn = document.getElementById('saveNowBtn');
+  const reloadPrefsBtn = document.getElementById('reloadPrefsBtn');
+  const prefsToast = document.getElementById('prefsToast');
+  const stage = document.getElementById('stage');
+  const sidebarResizer = document.getElementById('sidebarResizer');
+  const exportResizer = document.getElementById('exportResizer');
+  const slotSelect = document.getElementById('slotSelect');
+  const saveStateBtn = document.getElementById('saveStateBtn');
+  const loadStateBtn = document.getElementById('loadStateBtn');
+  const deleteStateBtn = document.getElementById('deleteStateBtn');
+  const slotToast = document.getElementById('slotToast');
+  const generateToast = document.getElementById('generateToast');
+  const wallpaperDirBox = document.getElementById('wallpaperDirBox');
+  const generatedDirBox = document.getElementById('generatedDirBox');
+  const appDirBox = document.getElementById('appDirBox');
+  const resetFoldersBtn = document.getElementById('resetFoldersBtn');
+  const pickWallpaperDirBtn = document.getElementById('pickWallpaperDirBtn');
+  const pickGeneratedDirBtn = document.getElementById('pickGeneratedDirBtn');
+  const openWallpaperBtn = document.getElementById('openWallpaperBtn');
+  const openGeneratedBtn = document.getElementById('openGeneratedBtn');
+  const manualPathField = document.getElementById('manualPathField');
+  const manualPathInput = document.getElementById('manualPathInput');
+  const manualPathSaveBtn = document.getElementById('manualPathSaveBtn');
+  const manualPathCancelBtn = document.getElementById('manualPathCancelBtn');
+  const folderToast = document.getElementById('folderToast');
+
+  function toast(el, kind, msg){
+    if(!msg){ el.className = 'toast'; el.textContent = ''; return; }
+    el.className = 'toast ' + (kind || 'info');
+    el.textContent = msg;
+  }
+
+  const HELPER_URL = 'http://127.0.0.1:8765';
+  const FONTS = ["Georgia","Helvetica","Arial","Verdana","Trebuchet MS","Courier New","Impact","Palatino"];
+
+  let state = {
+    resW: 1920, resH: 1080,
+    bgColor: "#15181a",
+    bgImage: null,
+    fit: "cover",
+    layers: [],
+    selectedLayer: null,
+    lastDataUrl: null,
+    lastFilename: null,
+    lastSavedPath: null,
+    helperConnected: false,
+    savedTitles: [],
+    homeworkCounter: 0,
+    sidebarW: 340,
+    exportW: 310
+  };
+  let idCounter = 1;
+
+  function newLayer(){
+    return {
+      id: idCounter++,
+      type: "text",
+      text: "Your text here",
+      font: "Georgia",
+      size: 72,
+      color: "#ffffff",
+      bold: true,
+      italic: false,
+      align: "center",
+      x: 0.5,
+      y: 0.5,
+      maxWidthFrac: 0.8,
+      outlineEnabled: false,
+      outlineColor: "#000000",
+      outlineWidth: 4,
+      highlightEnabled: false,
+      highlightColor: "#000000",
+      highlightOpacity: 0.35
+    };
+  }
+
+  function newImageLayer(src, name){
+    return {
+      id: idCounter++,
+      type: "image",
+      src: src,
+      name: name || "Image",
+      x: 0.5,
+      y: 0.5,
+      widthFrac: 0.3,     // of canvas width; height follows the image's aspect
+      opacity: 1,
+      cornerRadius: 0,
+      _img: null
+    };
+  }
+
+  // Layers keep their picture as a data URL so it travels with a save state;
+  // the decoded Image lives on _img, which serialization skips.
+  function hydrateImageLayer(layer, onReady){
+    if(!layer.src){ layer._img = null; return; }
+    const img = new Image();
+    img.onload = () => { layer._img = img; if(onReady) onReady(); };
+    img.src = layer.src;
+  }
+
+  function newHomeworkLayer(){
+    state.homeworkCounter += 1; // monotonic, never reused, even if sections get deleted
+    return {
+      id: idCounter++,
+      type: "homework",
+      homeworkNumber: state.homeworkCounter,
+      showHeading: false,   // the "Homework #N" line is opt-in
+      title: "",
+      date: "",
+      details: "",
+      font: "Georgia",
+      size: 48,
+      color: "#ffffff",
+      bold: true,
+      italic: false,
+      align: "left",
+      x: 0.5,
+      y: 0.5,
+      maxWidthFrac: 0.6,
+      outlineEnabled: false,
+      outlineColor: "#000000",
+      outlineWidth: 4,
+      highlightEnabled: true,
+      highlightColor: "#000000",
+      highlightOpacity: 0.4
+    };
+  }
+
+  // Measured from the stage itself, so it's correct whether the panels sit
+  // beside it or stacked above it. The stage's own size never depends on the
+  // canvas, so there's no feedback loop here.
+  function displayScale(){
+    const rect = stage.getBoundingClientRect();
+    const footer = document.querySelector('.stage-footer');
+    if(rect.width < 60 || rect.height < 60){
+      return Math.min(600 / state.resW, 400 / state.resH, 1);
+    }
+    const footerH = footer ? footer.offsetHeight + 16 : 0;
+    const maxW = Math.max(rect.width - 48, 140);
+    const maxH = Math.max(rect.height - 48 - footerH, 120);
+    return Math.min(maxW / state.resW, maxH / state.resH, 1);
+  }
+
+  // ---------- Resizable side panels ----------
+  const PANEL_MIN = 240, PANEL_MAX = 640;
+
+  function panelCap(){
+    // Matches the 38vw ceiling in the stylesheet, so a drag can't record a
+    // width the layout will refuse to render.
+    return Math.max(PANEL_MIN, Math.min(PANEL_MAX, window.innerWidth * 0.38));
+  }
+
+  function setPanelWidth(which, px){
+    const w = Math.round(Math.min(panelCap(), Math.max(PANEL_MIN, px)));
+    state[which] = w;
+    document.documentElement.style.setProperty(
+      which === 'sidebarW' ? '--sidebar-w' : '--export-w', w + 'px');
+    return w;
+  }
+
+  function makeResizer(handle, which, edge){
+    handle.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      handle.classList.add('active');
+      document.body.classList.add('resizing');
+
+      const move = (ev) => {
+        const px = edge === 'left'
+          ? ev.clientX
+          : window.innerWidth - ev.clientX;
+        setPanelWidth(which, px);
+        drawScene();
+      };
+      const up = () => {
+        handle.classList.remove('active');
+        document.body.classList.remove('resizing');
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        scheduleSave();
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+    });
+    // Double-click an edge to snap it back to its default width.
+    handle.addEventListener('dblclick', () => {
+      setPanelWidth(which, which === 'sidebarW' ? 340 : 310);
+      drawScene();
+      scheduleSave();
+    });
+  }
+
+  makeResizer(sidebarResizer, 'sidebarW', 'left');
+  makeResizer(exportResizer, 'exportW', 'right');
+
+  function setCanvasSize(){
+    canvas.width = state.resW;
+    canvas.height = state.resH;
+    const scale = displayScale();
+    canvas.style.width = (state.resW * scale) + 'px';
+    canvas.style.height = (state.resH * scale) + 'px';
+  }
+
+  function wrapText(text, maxWidth){
+    // Explicit newlines are hard breaks (paragraphs); each paragraph then
+    // wraps independently by width. This lets structured content (like a
+    // homework section's Title / Due / Details lines) render as distinct
+    // lines instead of being mashed into one wrapped blob.
+    const paragraphs = String(text).split('\n');
+    const lines = [];
+    for(const para of paragraphs){
+      if(para === ''){ lines.push(''); continue; }
+      const words = para.split(/\s+/).filter(Boolean);
+      let line = "";
+      for(const w of words){
+        const test = line ? line + " " + w : w;
+        if(ctx.measureText(test).width > maxWidth && line){
+          lines.push(line);
+          line = w;
+        } else {
+          line = test;
+        }
+      }
+      if(line) lines.push(line);
+    }
+    return lines;
+  }
+
+  function formatDateDisplay(iso){
+    if(!iso) return 'No due date set';
+    const parts = iso.split('-').map(Number);
+    if(parts.length !== 3 || parts.some(isNaN)) return iso;
+    const dt = new Date(parts[0], parts[1]-1, parts[2]);
+    return dt.toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
+  }
+
+  function composeHomeworkText(layer){
+    const title = (layer.title || '').trim() || 'Untitled homework';
+    const details = (layer.details || '').trim();
+    const lines = [];
+    if(layer.showHeading) lines.push(`Homework #${layer.homeworkNumber}`);
+    lines.push(title, `Due: ${formatDateDisplay(layer.date)}`);
+    if(details) lines.push(details);
+    return lines.join('\n');
+  }
+
+  function layerRenderText(layer){
+    return layer.type === 'homework' ? composeHomeworkText(layer) : (layer.text || "");
+  }
+
+  function layerLabel(layer){
+    if(layer.type === 'image'){
+      return (layer.name || 'Image').slice(0,28);
+    }
+    if(layer.type === 'homework'){
+      const t = (layer.title || '').trim();
+      return `Homework #${layer.homeworkNumber}` + (t ? ' — ' + t.slice(0,20) : '');
+    }
+    return (layer.text || "Text layer").slice(0,28);
+  }
+
+  function roundRectPath(x, y, w, h, r){
+    r = Math.max(0, Math.min(r, w/2, h/2));
+    ctx.beginPath();
+    ctx.moveTo(x+r, y);
+    ctx.arcTo(x+w, y, x+w, y+h, r);
+    ctx.arcTo(x+w, y+h, x, y+h, r);
+    ctx.arcTo(x, y+h, x, y, r);
+    ctx.arcTo(x, y, x+w, y, r);
+    ctx.closePath();
+  }
+
+  function drawImageLayer(layer){
+    const img = layer._img;
+    if(!img || !img.naturalWidth){ layer._bbox = null; return; }
+    const W = state.resW, H = state.resH;
+    const w = W * layer.widthFrac;
+    const h = w * (img.naturalHeight / img.naturalWidth);
+    const dx = layer.x * W - w/2;
+    const dy = layer.y * H - h/2;
+    ctx.save();
+    ctx.globalAlpha = layer.opacity;
+    if(layer.cornerRadius > 0){
+      roundRectPath(dx, dy, w, h, (Math.min(w,h)/2) * layer.cornerRadius);
+      ctx.clip();
+    }
+    ctx.drawImage(img, dx, dy, w, h);
+    ctx.restore();
+    layer._bbox = { x: dx, y: dy, w: w, h: h };
+  }
+
+  // Only the selected image layer gets a frame and a corner grip, and only
+  // on screen -- `exporting` keeps them out of the generated PNG.
+  function drawSelectionHandles(){
+    const layer = state.layers.find(l => l.id === state.selectedLayer);
+    if(!layer || layer.type !== 'image' || !layer._bbox) return;
+    const b = layer._bbox;
+    const unit = 1 / (displayScale() || 1);   // one screen pixel, in canvas pixels
+    ctx.save();
+    ctx.strokeStyle = '#3fb8a6';
+    ctx.lineWidth = 1.5 * unit;
+    ctx.setLineDash([5*unit, 4*unit]);
+    ctx.strokeRect(b.x, b.y, b.w, b.h);
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#3fb8a6';
+    const s = HANDLE_PX * unit;
+    ctx.fillRect(b.x + b.w - s/2, b.y + b.h - s/2, s, s);
+    ctx.restore();
+  }
+
+  function drawScene(exporting){
+    setCanvasSize();
+    const W = state.resW, H = state.resH;
+
+    ctx.clearRect(0,0,W,H);
+    ctx.fillStyle = state.bgColor;
+    ctx.fillRect(0,0,W,H);
+
+    if(state.bgImage){
+      const img = state.bgImage;
+      const ir = img.width / img.height;
+      const cr = W / H;
+      let dw, dh, dx, dy;
+      if(state.fit === "cover"){
+        if(ir > cr){ dh = H; dw = H * ir; } else { dw = W; dh = W / ir; }
+      } else {
+        if(ir > cr){ dw = W; dh = W / ir; } else { dh = H; dw = H * ir; }
+      }
+      dx = (W - dw)/2; dy = (H - dh)/2;
+      ctx.drawImage(img, dx, dy, dw, dh);
+    }
+
+    for(const layer of state.layers){
+      if(layer.type === 'image'){ drawImageLayer(layer); continue; }
+      ctx.save();
+      let fontStr = "";
+      if(layer.italic) fontStr += "italic ";
+      if(layer.bold) fontStr += "700 ";
+      fontStr += layer.size + "px " + layer.font;
+      ctx.font = fontStr;
+      ctx.fillStyle = layer.color;
+      ctx.textAlign = layer.align;
+      ctx.textBaseline = "middle";
+      ctx.shadowColor = "rgba(0,0,0,0.35)";
+      ctx.shadowBlur = layer.size * 0.06;
+
+      const maxWidth = W * layer.maxWidthFrac;
+      const lines = wrapText(layerRenderText(layer) || "", maxWidth);
+      const lineHeight = layer.size * 1.18;
+      const totalH = lineHeight * lines.length;
+      const cx = layer.x * W;
+      const cy = layer.y * H;
+
+      if(layer.highlightEnabled && lines.length){
+        // measure actual widest line so the highlight box hugs the text, not the wrap width
+        let widest = 0;
+        for(const ln of lines) widest = Math.max(widest, ctx.measureText(ln).width);
+        const padX = layer.size * 0.35, padY = layer.size * 0.22;
+        const boxW = widest + padX*2;
+        const boxH = totalH + padY*2;
+        let boxX = cx - boxW/2;
+        if(layer.align === 'left') boxX = cx - padX;
+        if(layer.align === 'right') boxX = cx - boxW + padX;
+        const boxY = cy - boxH/2;
+        ctx.save();
+        ctx.shadowColor = 'transparent';
+        ctx.fillStyle = layer.highlightColor;
+        ctx.globalAlpha = layer.highlightOpacity;
+        const r = Math.min(16, boxH/4);
+        ctx.beginPath();
+        ctx.moveTo(boxX+r, boxY);
+        ctx.arcTo(boxX+boxW, boxY, boxX+boxW, boxY+boxH, r);
+        ctx.arcTo(boxX+boxW, boxY+boxH, boxX, boxY+boxH, r);
+        ctx.arcTo(boxX, boxY+boxH, boxX, boxY, r);
+        ctx.arcTo(boxX, boxY, boxX+boxW, boxY, r);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+
+      let startY = cy - totalH/2 + lineHeight/2;
+      for(const ln of lines){
+        if(layer.outlineEnabled){
+          ctx.lineJoin = 'round';
+          ctx.miterLimit = 2;
+          ctx.strokeStyle = layer.outlineColor;
+          ctx.lineWidth = layer.outlineWidth;
+          ctx.strokeText(ln, cx, startY);
+        }
+        ctx.fillText(ln, cx, startY);
+        startY += lineHeight;
+      }
+      layer._bbox = { x: cx - maxWidth/2, y: cy - totalH/2, w: maxWidth, h: totalH };
+      ctx.restore();
+    }
+    if(!exporting) drawSelectionHandles();
+    scheduleSave();
+  }
+
+  // ---------- Layer panel UI ----------
+  // Key fix: typing in the textarea must NEVER trigger a full renderLayerList(),
+  // since that recreates the DOM node and drops focus. We only touch the small
+  // label span directly, in place, on every keystroke.
+  function renderLayerList(){
+    layerList.innerHTML = "";
+    state.layers.forEach(layer => {
+      const div = document.createElement('div');
+      div.className = 'layer' + (state.selectedLayer === layer.id ? ' selected' : '');
+
+      const head = document.createElement('div');
+      head.className = 'layer-head';
+      const label = document.createElement('span');
+      label.textContent = layerLabel(layer);
+      layer._labelEl = label; // keep a live reference, no re-render needed to update it
+
+      const delBtn = document.createElement('button');
+      delBtn.className = 'small danger';
+      delBtn.textContent = '✕';
+      delBtn.onclick = (e) => {
+        e.stopPropagation();
+        state.layers = state.layers.filter(l=>l.id!==layer.id);
+        drawScene(); renderLayerList();
+      };
+      head.appendChild(label);
+      head.appendChild(delBtn);
+      head.onclick = () => {
+        state.selectedLayer = (state.selectedLayer===layer.id)?null:layer.id;
+        renderLayerList();
+      };
+      div.appendChild(head);
+
+      if(state.selectedLayer === layer.id){
+        div.appendChild(buildLayerBody(layer));
+      }
+      layerList.appendChild(div);
+    });
+  }
+
+  function buildHomeworkFields(layer){
+    const wrap = document.createElement('div');
+
+    const headingRow = document.createElement('div');
+    headingRow.className = 'field row';
+    const headingToggle = document.createElement('button');
+    headingToggle.className = 'small' + (layer.showHeading ? ' primary' : ' ghost');
+    headingToggle.textContent = 'Show "Homework #' + layer.homeworkNumber + '" line';
+    headingToggle.onclick = () => {
+      layer.showHeading = !layer.showHeading;
+      headingToggle.className = 'small' + (layer.showHeading ? ' primary' : ' ghost');
+      drawScene();
+    };
+    headingRow.appendChild(headingToggle);
+    wrap.appendChild(headingRow);
+
+    // --- Title: type a new one, or pick + manage saved ones from a dropdown ---
+    const titleField = document.createElement('div');
+    titleField.className = 'field';
+    const titleLbl = document.createElement('label');
+    titleLbl.textContent = 'Title';
+    const titleInput = document.createElement('input');
+    titleInput.type = 'text';
+    titleInput.placeholder = 'e.g. Algebra worksheet';
+    titleInput.value = layer.title;
+    titleInput.addEventListener('input', () => {
+      layer.title = titleInput.value;
+      if(layer._labelEl) layer._labelEl.textContent = layerLabel(layer);
+      drawScene();
+    });
+    titleField.appendChild(titleLbl);
+    titleField.appendChild(titleInput);
+
+    const titleDropRow = document.createElement('div');
+    titleDropRow.className = 'field row';
+    const titleSelect = document.createElement('select');
+    function refreshTitleOptions(){
+      titleSelect.innerHTML = '';
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = state.savedTitles.length ? 'Saved titles…' : 'No saved titles yet';
+      titleSelect.appendChild(placeholder);
+      state.savedTitles.forEach(t => {
+        const o = document.createElement('option');
+        o.value = t; o.textContent = t;
+        titleSelect.appendChild(o);
+      });
+    }
+    refreshTitleOptions();
+    titleSelect.addEventListener('change', () => {
+      if(!titleSelect.value) return;
+      layer.title = titleSelect.value;
+      titleInput.value = titleSelect.value;
+      if(layer._labelEl) layer._labelEl.textContent = layerLabel(layer);
+      drawScene();
+    });
+
+    const saveTitleBtn = document.createElement('button');
+    saveTitleBtn.className = 'small ghost';
+    saveTitleBtn.textContent = 'Save title';
+    saveTitleBtn.title = 'Add the current title to your saved list';
+    saveTitleBtn.onclick = () => {
+      const t = (layer.title || '').trim();
+      if(!t) return;
+      if(!state.savedTitles.includes(t)){
+        state.savedTitles.push(t);
+        refreshTitleOptions();
+        drawScene(); // triggers the debounced preferences save
+      }
+    };
+
+    const deleteTitleBtn = document.createElement('button');
+    deleteTitleBtn.className = 'small danger';
+    deleteTitleBtn.textContent = 'Delete selected';
+    deleteTitleBtn.onclick = () => {
+      if(!titleSelect.value) return;
+      state.savedTitles = state.savedTitles.filter(t => t !== titleSelect.value);
+      refreshTitleOptions();
+      drawScene();
+    };
+
+    titleDropRow.appendChild(titleSelect);
+    titleDropRow.appendChild(saveTitleBtn);
+    titleDropRow.appendChild(deleteTitleBtn);
+    titleField.appendChild(titleDropRow);
+    wrap.appendChild(titleField);
+
+    // --- Date: native input opens each browser's own visual calendar ---
+    const dateField = document.createElement('div');
+    dateField.className = 'field';
+    const dateLbl = document.createElement('label');
+    dateLbl.textContent = 'Due date';
+    const dateInput = document.createElement('input');
+    dateInput.type = 'date';
+    dateInput.value = layer.date || '';
+    dateInput.addEventListener('input', () => {
+      layer.date = dateInput.value;
+      drawScene();
+    });
+    dateField.appendChild(dateLbl);
+    dateField.appendChild(dateInput);
+    wrap.appendChild(dateField);
+
+    // --- Details ---
+    const detailsField = document.createElement('div');
+    detailsField.className = 'field';
+    const detailsLbl = document.createElement('label');
+    detailsLbl.textContent = 'Details';
+    const detailsArea = document.createElement('textarea');
+    detailsArea.placeholder = 'Notes, page numbers, what to bring…';
+    detailsArea.value = layer.details || '';
+    detailsArea.addEventListener('input', () => {
+      layer.details = detailsArea.value;
+      drawScene();
+    });
+    detailsField.appendChild(detailsLbl);
+    detailsField.appendChild(detailsArea);
+    wrap.appendChild(detailsField);
+
+    return wrap;
+  }
+
+  function buildImageFields(layer){
+    const wrap = document.createElement('div');
+
+    const thumb = document.createElement('img');
+    thumb.className = 'layer-thumb';
+    if(layer.src) thumb.src = layer.src;
+    wrap.appendChild(thumb);
+
+    // Replace the picture: click to browse, or drop a file straight on the box.
+    const drop = document.createElement('div');
+    drop.className = 'upload-drop';
+    drop.style.marginBottom = '10px';
+    drop.textContent = 'Drop a new image here, or click to browse';
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    drop.appendChild(input);
+
+    function replaceWith(file){
+      readImageFile(file, (src, name) => {
+        layer.src = src;
+        layer.name = name;
+        thumb.src = src;
+        if(layer._labelEl) layer._labelEl.textContent = layerLabel(layer);
+        hydrateImageLayer(layer, () => drawScene());
+      });
+    }
+    drop.addEventListener('click', () => input.click());
+    input.addEventListener('change', (e) => replaceWith(e.target.files[0]));
+    wireFileDrop(drop, drop, replaceWith);
+    wrap.appendChild(drop);
+
+    const sizeRow = document.createElement('div');
+    sizeRow.className = 'field';
+    const sizeLbl = document.createElement('label');
+    const sizeText = () => 'Size: ' + Math.round(layer.widthFrac*100) + '% of canvas width';
+    sizeLbl.textContent = sizeText();
+    const sizeInp = document.createElement('input');
+    sizeInp.type = 'range'; sizeInp.min = 2; sizeInp.max = 200;
+    sizeInp.value = Math.round(layer.widthFrac*100);
+    sizeInp.oninput = () => {
+      layer.widthFrac = sizeInp.value/100;
+      sizeLbl.textContent = sizeText();
+      drawScene();
+    };
+    // Dragging the canvas grip has to move this slider too, or the two
+    // controls disagree about the same number.
+    layer._sizeSync = () => { sizeInp.value = Math.round(layer.widthFrac*100); sizeLbl.textContent = sizeText(); };
+    sizeRow.appendChild(sizeLbl); sizeRow.appendChild(sizeInp);
+    wrap.appendChild(sizeRow);
+
+    const opacityRow = document.createElement('div');
+    opacityRow.className = 'field';
+    const opLbl = document.createElement('label');
+    opLbl.textContent = 'Opacity: ' + Math.round(layer.opacity*100) + '%';
+    const opInp = document.createElement('input');
+    opInp.type = 'range'; opInp.min = 5; opInp.max = 100;
+    opInp.value = Math.round(layer.opacity*100);
+    opInp.oninput = () => {
+      layer.opacity = opInp.value/100;
+      opLbl.textContent = 'Opacity: ' + opInp.value + '%';
+      drawScene();
+    };
+    opacityRow.appendChild(opLbl); opacityRow.appendChild(opInp);
+    wrap.appendChild(opacityRow);
+
+    const radiusRow = document.createElement('div');
+    radiusRow.className = 'field';
+    const rLbl = document.createElement('label');
+    rLbl.textContent = 'Rounded corners: ' + Math.round(layer.cornerRadius*100) + '%';
+    const rInp = document.createElement('input');
+    rInp.type = 'range'; rInp.min = 0; rInp.max = 100;
+    rInp.value = Math.round(layer.cornerRadius*100);
+    rInp.oninput = () => {
+      layer.cornerRadius = rInp.value/100;
+      rLbl.textContent = 'Rounded corners: ' + rInp.value + '%';
+      drawScene();
+    };
+    radiusRow.appendChild(rLbl); radiusRow.appendChild(rInp);
+    wrap.appendChild(radiusRow);
+
+    const alignRow = document.createElement('div');
+    alignRow.className = 'field row align-row';
+    const cx = document.createElement('button');
+    cx.className = 'small ghost'; cx.textContent = 'Center X';
+    cx.onclick = () => { layer.x = 0.5; drawScene(); };
+    const cy = document.createElement('button');
+    cy.className = 'small ghost'; cy.textContent = 'Center Y';
+    cy.onclick = () => { layer.y = 0.5; drawScene(); };
+    const fill = document.createElement('button');
+    fill.className = 'small ghost'; fill.textContent = 'Fit to width';
+    fill.onclick = () => {
+      layer.widthFrac = 1; layer.x = 0.5; layer.y = 0.5;
+      if(layer._sizeSync) layer._sizeSync();
+      drawScene();
+    };
+    alignRow.appendChild(cx); alignRow.appendChild(cy); alignRow.appendChild(fill);
+    wrap.appendChild(alignRow);
+
+    const orderRow = document.createElement('div');
+    orderRow.className = 'field row align-row';
+    const back = document.createElement('button');
+    back.className = 'small ghost'; back.textContent = 'Send back';
+    back.onclick = () => moveLayer(layer, -1);
+    const front = document.createElement('button');
+    front.className = 'small ghost'; front.textContent = 'Bring forward';
+    front.onclick = () => moveLayer(layer, 1);
+    orderRow.appendChild(back); orderRow.appendChild(front);
+    wrap.appendChild(orderRow);
+
+    return wrap;
+  }
+
+  function moveLayer(layer, delta){
+    const i = state.layers.indexOf(layer);
+    const j = i + delta;
+    if(i < 0 || j < 0 || j >= state.layers.length) return;
+    state.layers.splice(i, 1);
+    state.layers.splice(j, 0, layer);
+    renderLayerList();
+    drawScene();
+  }
+
+  function buildLayerBody(layer){
+    const body = document.createElement('div');
+    body.className = 'layer-body';
+
+    if(layer.type === 'image'){
+      body.appendChild(buildImageFields(layer));
+      return body;
+    }
+
+    if(layer.type === 'homework'){
+      body.appendChild(buildHomeworkFields(layer));
+    } else {
+      // --- text field: only updates its own label span + canvas on input ---
+      const textField = document.createElement('div');
+      textField.className = 'field';
+      const textLbl = document.createElement('label');
+      textLbl.textContent = 'Text';
+      const textArea = document.createElement('textarea');
+      textArea.value = layer.text;
+      textArea.addEventListener('input', () => {
+        layer.text = textArea.value;
+        if(layer._labelEl) layer._labelEl.textContent = layerLabel(layer);
+        drawScene();
+      });
+      textField.appendChild(textLbl);
+      textField.appendChild(textArea);
+      body.appendChild(textField);
+    }
+
+    // --- font ---
+    const fontField = document.createElement('div');
+    fontField.className = 'field';
+    const fontLbl = document.createElement('label');
+    fontLbl.textContent = 'Font';
+    const fontSel = document.createElement('select');
+    FONTS.forEach(f=>{
+      const o = document.createElement('option'); o.value=f; o.textContent=f;
+      if(layer.font===f) o.selected = true;
+      fontSel.appendChild(o);
+    });
+    fontSel.onchange = () => { layer.font = fontSel.value; drawScene(); };
+    fontField.appendChild(fontLbl); fontField.appendChild(fontSel);
+    body.appendChild(fontField);
+
+    // --- size ---
+    const sizeRow = document.createElement('div');
+    sizeRow.className = 'field';
+    const sizeLbl = document.createElement('label');
+    sizeLbl.textContent = 'Size: ' + layer.size + 'px';
+    const sizeInput = document.createElement('input');
+    sizeInput.type = 'range'; sizeInput.min = 16; sizeInput.max = 300; sizeInput.value = layer.size;
+    sizeInput.oninput = () => { layer.size = +sizeInput.value; sizeLbl.textContent = 'Size: ' + layer.size + 'px'; drawScene(); };
+    sizeRow.appendChild(sizeLbl); sizeRow.appendChild(sizeInput);
+    body.appendChild(sizeRow);
+
+    // --- quick align ---
+    const alignQuickRow = document.createElement('div');
+    alignQuickRow.className = 'field row align-row';
+    const centerXBtn = document.createElement('button');
+    centerXBtn.className = 'small ghost';
+    centerXBtn.textContent = 'Center X';
+    centerXBtn.onclick = () => { layer.x = 0.5; drawScene(); };
+    const centerYBtn = document.createElement('button');
+    centerYBtn.className = 'small ghost';
+    centerYBtn.textContent = 'Center Y';
+    centerYBtn.onclick = () => { layer.y = 0.5; drawScene(); };
+    alignQuickRow.appendChild(centerXBtn);
+    alignQuickRow.appendChild(centerYBtn);
+    body.appendChild(alignQuickRow);
+
+    // --- text color ---
+    const colorField = document.createElement('div');
+    colorField.className = 'field';
+    const colorLbl = document.createElement('label');
+    colorLbl.textContent = 'Text color';
+    const colorInp = document.createElement('input');
+    colorInp.type = 'color'; colorInp.value = layer.color;
+    colorInp.oninput = () => { layer.color = colorInp.value; drawScene(); };
+    colorField.appendChild(colorLbl);
+    colorField.appendChild(colorInp);
+    body.appendChild(colorField);
+
+    // --- align / bold / italic ---
+    const styleRow = document.createElement('div');
+    styleRow.className = 'field row';
+    const alignSel = document.createElement('select');
+    ['left','center','right'].forEach(a=>{
+      const o = document.createElement('option'); o.value=a; o.textContent=a[0].toUpperCase()+a.slice(1);
+      if(layer.align===a) o.selected = true;
+      alignSel.appendChild(o);
+    });
+    alignSel.onchange = () => { layer.align = alignSel.value; drawScene(); };
+    const boldBtn = document.createElement('button');
+    boldBtn.className = 'small' + (layer.bold?' primary':' ghost');
+    boldBtn.textContent = 'B';
+    boldBtn.onclick = () => { layer.bold = !layer.bold; boldBtn.className = 'small' + (layer.bold?' primary':' ghost'); drawScene(); };
+    const italBtn = document.createElement('button');
+    italBtn.className = 'small' + (layer.italic?' primary':' ghost');
+    italBtn.textContent = 'I';
+    italBtn.onclick = () => { layer.italic = !layer.italic; italBtn.className = 'small' + (layer.italic?' primary':' ghost'); drawScene(); };
+    styleRow.appendChild(alignSel);
+    styleRow.appendChild(boldBtn);
+    styleRow.appendChild(italBtn);
+    body.appendChild(styleRow);
+
+    // --- outline color (toggle + picker + width) ---
+    const outlineField = document.createElement('div');
+    outlineField.className = 'field row';
+    const outlineToggle = document.createElement('button');
+    outlineToggle.className = 'small' + (layer.outlineEnabled?' primary':' ghost');
+    outlineToggle.textContent = 'Outline';
+    const outlineColorInp = document.createElement('input');
+    outlineColorInp.type = 'color'; outlineColorInp.value = layer.outlineColor;
+    outlineColorInp.disabled = !layer.outlineEnabled;
+    outlineColorInp.oninput = () => { layer.outlineColor = outlineColorInp.value; drawScene(); };
+    const outlineWidthInp = document.createElement('input');
+    outlineWidthInp.type = 'range'; outlineWidthInp.min = 1; outlineWidthInp.max = 20;
+    outlineWidthInp.value = layer.outlineWidth;
+    outlineWidthInp.disabled = !layer.outlineEnabled;
+    outlineWidthInp.oninput = () => { layer.outlineWidth = +outlineWidthInp.value; drawScene(); };
+    outlineToggle.onclick = () => {
+      layer.outlineEnabled = !layer.outlineEnabled;
+      outlineToggle.className = 'small' + (layer.outlineEnabled?' primary':' ghost');
+      outlineColorInp.disabled = !layer.outlineEnabled;
+      outlineWidthInp.disabled = !layer.outlineEnabled;
+      drawScene();
+    };
+    outlineField.appendChild(outlineToggle);
+    outlineField.appendChild(outlineColorInp);
+    outlineField.appendChild(outlineWidthInp);
+    body.appendChild(outlineField);
+
+    // --- highlight / background color behind text (toggle + picker + opacity) ---
+    const highlightField = document.createElement('div');
+    highlightField.className = 'field row';
+    const highlightToggle = document.createElement('button');
+    highlightToggle.className = 'small' + (layer.highlightEnabled?' primary':' ghost');
+    highlightToggle.textContent = 'Highlight';
+    const highlightColorInp = document.createElement('input');
+    highlightColorInp.type = 'color'; highlightColorInp.value = layer.highlightColor;
+    highlightColorInp.disabled = !layer.highlightEnabled;
+    highlightColorInp.oninput = () => { layer.highlightColor = highlightColorInp.value; drawScene(); };
+    const highlightOpacityInp = document.createElement('input');
+    highlightOpacityInp.type = 'range'; highlightOpacityInp.min = 5; highlightOpacityInp.max = 100;
+    highlightOpacityInp.value = Math.round(layer.highlightOpacity*100);
+    highlightOpacityInp.disabled = !layer.highlightEnabled;
+    highlightOpacityInp.oninput = () => { layer.highlightOpacity = highlightOpacityInp.value/100; drawScene(); };
+    highlightToggle.onclick = () => {
+      layer.highlightEnabled = !layer.highlightEnabled;
+      highlightToggle.className = 'small' + (layer.highlightEnabled?' primary':' ghost');
+      highlightColorInp.disabled = !layer.highlightEnabled;
+      highlightOpacityInp.disabled = !layer.highlightEnabled;
+      drawScene();
+    };
+    highlightField.appendChild(highlightToggle);
+    highlightField.appendChild(highlightColorInp);
+    highlightField.appendChild(highlightOpacityInp);
+    body.appendChild(highlightField);
+
+    // --- wrap width ---
+    const widthRow = document.createElement('div');
+    widthRow.className = 'field';
+    const wLbl = document.createElement('label');
+    wLbl.textContent = 'Wrap width: ' + Math.round(layer.maxWidthFrac*100) + '%';
+    const wInp = document.createElement('input');
+    wInp.type = 'range'; wInp.min = 10; wInp.max = 100; wInp.value = layer.maxWidthFrac*100;
+    wInp.oninput = () => { layer.maxWidthFrac = wInp.value/100; wLbl.textContent = 'Wrap width: ' + wInp.value + '%'; drawScene(); };
+    widthRow.appendChild(wLbl); widthRow.appendChild(wInp);
+    body.appendChild(widthRow);
+
+    return body;
+  }
+
+  // ---------- Canvas / bg controls ----------
+  resSelect.addEventListener('change', () => {
+    const [w,h] = resSelect.value.split('x').map(Number);
+    state.resW = w; state.resH = h;
+    drawScene();
+  });
+  bgColorInput.addEventListener('input', () => { state.bgColor = bgColorInput.value; drawScene(); });
+  fitSelect.addEventListener('change', () => { state.fit = fitSelect.value; drawScene(); });
+
+  // One path for every way an image can arrive: file picker, drag-and-drop,
+  // or paste. Anything that isn't an image is ignored rather than blanking
+  // what someone already set.
+  function readImageFile(file, done){
+    if(!file || !file.type.startsWith('image/')) return false;
+    const reader = new FileReader();
+    reader.onload = (ev) => done(ev.target.result, file.name);
+    reader.readAsDataURL(file);
+    return true;
+  }
+
+  function loadImageFile(file){
+    return readImageFile(file, (src, name) => {
+      const img = new Image();
+      img.onload = () => { state.bgImage = img; dropLabel.textContent = name; drawScene(); };
+      img.src = src;
+    });
+  }
+
+  // Drops an image onto the canvas as its own movable layer, landing where
+  // it was dropped rather than always in the middle.
+  function addImageLayer(file, xFrac, yFrac){
+    return readImageFile(file, (src, name) => {
+      const layer = newImageLayer(src, name);
+      if(typeof xFrac === 'number') layer.x = Math.min(0.98, Math.max(0.02, xFrac));
+      if(typeof yFrac === 'number') layer.y = Math.min(0.98, Math.max(0.02, yFrac));
+      state.layers.push(layer);
+      state.selectedLayer = layer.id;
+      hydrateImageLayer(layer, () => { renderLayerList(); drawScene(); });
+    });
+  }
+
+  function firstImageFrom(dataTransfer){
+    if(!dataTransfer) return null;
+    const files = Array.from(dataTransfer.files || []);
+    return files.find(f => f.type.startsWith('image/')) || null;
+  }
+
+  // el listens, host carries the highlight, handler decides what the file means.
+  function wireFileDrop(el, host, handler){
+    let depth = 0;
+    el.addEventListener('dragenter', (e) => {
+      if(!e.dataTransfer || !Array.from(e.dataTransfer.types || []).includes('Files')) return;
+      e.preventDefault();
+      depth++;
+      host.classList.add('dragover');
+    });
+    el.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+    });
+    el.addEventListener('dragleave', () => {
+      depth = Math.max(0, depth - 1);
+      if(depth === 0) host.classList.remove('dragover');
+    });
+    el.addEventListener('drop', (e) => {
+      e.preventDefault();
+      depth = 0;
+      host.classList.remove('dragover');
+      const file = firstImageFrom(e.dataTransfer);
+      if(file) handler(file, e);
+    });
+  }
+
+  // Sidebar box sets the background; the canvas adds a layer on top of it.
+  wireFileDrop(dropZone, dropZone, (file) => loadImageFile(file));
+  wireFileDrop(stage, stage, (file, e) => {
+    const rect = canvas.getBoundingClientRect();
+    const inside = e.clientX >= rect.left && e.clientX <= rect.right &&
+                   e.clientY >= rect.top && e.clientY <= rect.bottom;
+    if(inside){
+      addImageLayer(file, (e.clientX - rect.left) / rect.width,
+                          (e.clientY - rect.top) / rect.height);
+    } else {
+      addImageLayer(file);
+    }
+  });
+
+  addImageBtn.addEventListener('click', () => imageLayerInput.click());
+  imageLayerInput.addEventListener('change', (e) => {
+    addImageLayer(e.target.files[0]);
+    imageLayerInput.value = '';
+  });
+
+  // The browser's default is to navigate away to whatever you dropped, which
+  // would throw the whole project away mid-edit.
+  ['dragover','drop'].forEach(type => {
+    window.addEventListener(type, (e) => {
+      if(e.target.closest && (e.target.closest('#stage') || e.target.closest('#dropZone'))) return;
+      e.preventDefault();
+    });
+  });
+
+  window.addEventListener('paste', (e) => {
+    const items = Array.from((e.clipboardData && e.clipboardData.files) || []);
+    const img = items.find(f => f.type.startsWith('image/'));
+    if(img) loadImageFile(img);
+  });
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', (e) => {
+    loadImageFile(e.target.files[0]);
+  });
+  clearImgBtn.addEventListener('click', () => {
+    state.bgImage = null; dropLabel.textContent = 'Drop an image here, or click to browse';
+    fileInput.value = ''; drawScene();
+  });
+
+  addTextBtn.addEventListener('click', () => {
+    const l = newLayer();
+    state.layers.push(l);
+    state.selectedLayer = l.id;
+    renderLayerList();
+    drawScene();
+  });
+
+  addHomeworkBtn.addEventListener('click', () => {
+    const l = newHomeworkLayer();
+    state.layers.push(l);
+    state.selectedLayer = l.id;
+    renderLayerList();
+    drawScene();
+  });
+
+  // ---------- Drag-to-reposition on canvas, with snap guides ----------
+  let dragLayer = null, dragOffset = {x:0,y:0};
+  const SAFE_MARGIN = 0.06; // 6% "safe area" guide from each edge
+  const HANDLE_PX = 11;     // corner grip, in screen pixels
+
+  function canvasPosToDoc(clientX, clientY){
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return { x: (clientX - rect.left) * scaleX, y: (clientY - rect.top) * scaleY };
+  }
+
+  // Snap targets are collected fresh each drag-move so they always reflect
+  // current layer positions/sizes. Canvas center + safe-margins are always
+  // included; other layers contribute their left/center/right (and
+  // top/center/bottom) edges so things can snap flush against each other.
+  function collectSnapTargets(excludeId){
+    const W = state.resW, H = state.resH;
+    const xTargets = [{ value: W/2, kind: 'center' }];
+    const yTargets = [{ value: H/2, kind: 'center' }];
+    const mx = W * SAFE_MARGIN, my = H * SAFE_MARGIN;
+    xTargets.push({ value: mx, kind: 'margin' }, { value: W - mx, kind: 'margin' });
+    yTargets.push({ value: my, kind: 'margin' }, { value: H - my, kind: 'margin' });
+
+    for(const layer of state.layers){
+      if(layer.id === excludeId || !layer._bbox) continue;
+      const b = layer._bbox;
+      xTargets.push({ value: b.x, kind: 'layer' }, { value: b.x + b.w/2, kind: 'layer' }, { value: b.x + b.w, kind: 'layer' });
+      yTargets.push({ value: b.y, kind: 'layer' }, { value: b.y + b.h/2, kind: 'layer' }, { value: b.y + b.h, kind: 'layer' });
+    }
+    return { xTargets, yTargets };
+  }
+
+  // Guides are drawn only for the instant they're actually hit — "invisible"
+  // the rest of the time, exactly like Figma/Keynote smart guides.
+  function drawGuides(xHit, yHit){
+    const W = state.resW, H = state.resH;
+    ctx.save();
+    ctx.strokeStyle = '#3fb8a6';
+    ctx.lineWidth = Math.max(1, W * 0.0012);
+    ctx.setLineDash([W*0.008, W*0.006]);
+    if(xHit != null){
+      ctx.beginPath();
+      ctx.moveTo(xHit, 0);
+      ctx.lineTo(xHit, H);
+      ctx.stroke();
+    }
+    if(yHit != null){
+      ctx.beginPath();
+      ctx.moveTo(0, yHit);
+      ctx.lineTo(W, yHit);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  let resizeLayer = null;
+
+  function handleHitTest(p){
+    const layer = state.layers.find(l => l.id === state.selectedLayer);
+    if(!layer || layer.type !== 'image' || !layer._bbox) return null;
+    const b = layer._bbox;
+    const s = (HANDLE_PX + 6) / (displayScale() || 1);
+    const hx = b.x + b.w, hy = b.y + b.h;
+    return (Math.abs(p.x - hx) <= s/2 && Math.abs(p.y - hy) <= s/2) ? layer : null;
+  }
+
+  canvas.addEventListener('pointermove', (e) => {
+    if(dragLayer || resizeLayer) return;
+    canvas.style.cursor = handleHitTest(canvasPosToDoc(e.clientX, e.clientY))
+      ? 'nwse-resize' : '';
+  });
+
+  canvas.addEventListener('pointerdown', (e) => {
+    const p = canvasPosToDoc(e.clientX, e.clientY);
+
+    const grip = handleHitTest(p);
+    if(grip){
+      resizeLayer = grip;
+      canvas.classList.add('dragging');
+      return;
+    }
+
+    for(let i = state.layers.length - 1; i >= 0; i--){
+      const layer = state.layers[i];
+      const b = layer._bbox;
+      if(b && p.x >= b.x && p.x <= b.x+b.w && p.y >= b.y && p.y <= b.y+b.h){
+        dragLayer = layer;
+        dragOffset.x = p.x - layer.x*state.resW;
+        dragOffset.y = p.y - layer.y*state.resH;
+        if(state.selectedLayer !== layer.id){
+          state.selectedLayer = layer.id;
+          renderLayerList();
+        }
+        canvas.classList.add('dragging');
+        break;
+      }
+    }
+  });
+
+  window.addEventListener('pointermove', (e) => {
+    if(resizeLayer){
+      const p = canvasPosToDoc(e.clientX, e.clientY);
+      const halfW = Math.abs(p.x - resizeLayer.x * state.resW);
+      resizeLayer.widthFrac = Math.min(2, Math.max(0.02, (halfW * 2) / state.resW));
+      if(resizeLayer._sizeSync) resizeLayer._sizeSync();
+      drawScene();
+      return;
+    }
+    if(!dragLayer) return;
+    const p = canvasPosToDoc(e.clientX, e.clientY);
+    let targetCx = p.x - dragOffset.x;
+    let targetCy = p.y - dragOffset.y;
+
+    const snappingOn = snapToggle.checked && !e.altKey;
+    let xHit = null, yHit = null;
+
+    if(snappingOn){
+      const scale = displayScale();
+      const snapThreshold = 9 / (scale || 1); // ~9 screen px, regardless of zoom/resolution
+      const b = dragLayer._bbox || { w: 0, h: 0 };
+      const halfW = b.w/2, halfH = b.h/2;
+      const { xTargets, yTargets } = collectSnapTargets(dragLayer.id);
+
+      // Try snapping the layer's center, left edge, and right edge against
+      // every x target; whichever combination is closest wins.
+      const xCandidates = [
+        { value: targetCx, offset: 0 },
+        { value: targetCx - halfW, offset: halfW },
+        { value: targetCx + halfW, offset: -halfW }
+      ];
+      const yCandidates = [
+        { value: targetCy, offset: 0 },
+        { value: targetCy - halfH, offset: halfH },
+        { value: targetCy + halfH, offset: -halfH }
+      ];
+
+      let bestXDist = snapThreshold;
+      for(const cand of xCandidates){
+        for(const t of xTargets){
+          const dist = Math.abs(cand.value - t.value);
+          if(dist < bestXDist){
+            bestXDist = dist;
+            targetCx = t.value + cand.offset;
+            xHit = t.value;
+          }
+        }
+      }
+      let bestYDist = snapThreshold;
+      for(const cand of yCandidates){
+        for(const t of yTargets){
+          const dist = Math.abs(cand.value - t.value);
+          if(dist < bestYDist){
+            bestYDist = dist;
+            targetCy = t.value + cand.offset;
+            yHit = t.value;
+          }
+        }
+      }
+    }
+
+    dragLayer.x = Math.min(1, Math.max(0, targetCx / state.resW));
+    dragLayer.y = Math.min(1, Math.max(0, targetCy / state.resH));
+    drawScene();
+    if(xHit != null || yHit != null) drawGuides(xHit, yHit);
+  });
+
+  window.addEventListener('pointerup', () => {
+    dragLayer = null;
+    resizeLayer = null;
+    canvas.classList.remove('dragging');
+  });
+  window.addEventListener('pointercancel', () => {
+    dragLayer = null;
+    resizeLayer = null;
+    canvas.classList.remove('dragging');
+  });
+  // Not `drawScene` directly: the resize event would arrive as the `exporting` flag.
+  window.addEventListener('resize', () => drawScene());
+
+  // ---------- Keyboard nudge: arrow keys move the selected layer ----------
+  window.addEventListener('keydown', (e) => {
+    if(!['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) return;
+    const active = document.activeElement;
+    const tag = active && active.tagName;
+    if(tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT') return; // don't hijack typing
+    const layer = state.layers.find(l => l.id === state.selectedLayer);
+    if(!layer) return;
+    e.preventDefault();
+    const step = (e.shiftKey ? 10 : 1);
+    const dxFrac = step / state.resW, dyFrac = step / state.resH;
+    if(e.key === 'ArrowUp') layer.y = Math.max(0, layer.y - dyFrac);
+    if(e.key === 'ArrowDown') layer.y = Math.min(1, layer.y + dyFrac);
+    if(e.key === 'ArrowLeft') layer.x = Math.max(0, layer.x - dxFrac);
+    if(e.key === 'ArrowRight') layer.x = Math.min(1, layer.x + dxFrac);
+    drawScene();
+  });
+
+  // ---------- Generate / export ----------
+  generateBtn.addEventListener('click', async () => {
+    drawScene(true);
+    const dataUrl = canvas.toDataURL('image/png');
+    drawScene();
+    state.lastDataUrl = dataUrl;
+    state.lastFilename = 'wallpaper-' + state.resW + 'x' + state.resH + '.png';
+    state.lastSavedPath = null;
+    resultImg.src = dataUrl;
+    resultImg.style.display = 'block';
+    downloadBtn.style.display = 'block';
+    applyBtn.style.display = 'block';
+    toast(applyToast, null, '');
+
+    generateBtn.disabled = true;
+    toast(generateToast, 'info', 'Saving…');
+    try{
+      const res = await fetch(HELPER_URL + '/generate', {
+        method: 'POST', mode: 'cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image_base64: dataUrl })
+      });
+      const data = await res.json();
+      if(res.ok){
+        state.lastSavedPath = data.path;
+        const name = data.path.split(/[\\/]/).pop();
+        const pruned = (data.removed && data.removed.length)
+          ? ` Removed the oldest: ${data.removed.join(', ')}.`
+          : '';
+        toast(generateToast, 'ok', `Saved ${name} (${data.count} of 10 in the folder).${pruned}`);
+      } else {
+        toast(generateToast, 'err', 'Helper error: ' + (data.error || 'unknown error'));
+      }
+    }catch(e){
+      toast(generateToast, 'err', 'Helper not running, so nothing was saved to disk. Use the download button below, or start the helper and generate again.');
+    }
+    generateBtn.disabled = false;
+  });
+
+  downloadBtn.addEventListener('click', () => {
+    if(!state.lastDataUrl) return;
+    const a = document.createElement('a');
+    a.href = state.lastDataUrl; a.download = state.lastFilename; a.click();
+  });
+
+  // ---------- Preferences: full state persisted via the local helper ----------
+  let hasAttemptedLoad = false;
+  let saveTimer = null;
+
+  function serializeState(){
+    return {
+      resW: state.resW, resH: state.resH,
+      bgColor: state.bgColor, fit: state.fit,
+      bgImageDataUrl: state.bgImage ? state.bgImage.src : null,
+      savedTitles: state.savedTitles,
+      homeworkCounter: state.homeworkCounter,
+      sidebarW: state.sidebarW,
+      exportW: state.exportW,
+      idCounter: idCounter,
+      selectedLayer: state.selectedLayer,
+      layers: state.layers.map(l => {
+        const copy = {};
+        for(const k in l){ if(!k.startsWith('_')) copy[k] = l[k]; }
+        return copy;
+      })
+    };
+  }
+
+  function applyLoadedState(data){
+    if(!data) return;
+    state.resW = data.resW || state.resW;
+    state.resH = data.resH || state.resH;
+    state.bgColor = data.bgColor || state.bgColor;
+    state.fit = data.fit || state.fit;
+    state.savedTitles = Array.isArray(data.savedTitles) ? data.savedTitles : [];
+    state.homeworkCounter = data.homeworkCounter || 0;
+    setPanelWidth('sidebarW', data.sidebarW || state.sidebarW);
+    setPanelWidth('exportW', data.exportW || state.exportW);
+    idCounter = data.idCounter || idCounter;
+    state.layers = Array.isArray(data.layers) ? data.layers.map(l => Object.assign({}, l)) : [];
+    state.selectedLayer = (data.selectedLayer !== undefined) ? data.selectedLayer : null;
+
+    // Pictures come back as data URLs and have to be decoded again before
+    // they can be drawn; each one redraws as it finishes.
+    state.layers.forEach(l => {
+      if(l.type === 'image'){
+        l._img = null;
+        hydrateImageLayer(l, () => drawScene());
+      }
+    });
+
+    const resVal = state.resW + 'x' + state.resH;
+    if(Array.from(resSelect.options).some(o => o.value === resVal)) resSelect.value = resVal;
+    bgColorInput.value = state.bgColor;
+    fitSelect.value = state.fit;
+
+    if(data.bgImageDataUrl){
+      const img = new Image();
+      img.onload = () => { state.bgImage = img; dropLabel.textContent = 'Restored image'; drawScene(); };
+      img.src = data.bgImageDataUrl;
+    } else {
+      state.bgImage = null;
+      dropLabel.textContent = 'Drop an image here, or click to browse';
+    }
+
+    renderLayerList();
+    drawScene();
+  }
+
+  async function loadSavedState(showToast){
+    try{
+      const res = await fetch(HELPER_URL + '/state', { method: 'GET', mode: 'cors' });
+      if(res.ok){
+        const data = await res.json();
+        if(data.exists && data.data){
+          applyLoadedState(data.data);
+          if(showToast){ prefsToast.className = 'toast ok'; prefsToast.textContent = 'Loaded saved preferences.'; }
+          return true;
+        } else if(showToast){
+          prefsToast.className = 'toast'; prefsToast.textContent = 'No saved preferences found yet.';
+        }
+      }
+    }catch(e){
+      if(showToast){ prefsToast.className = 'toast err'; prefsToast.textContent = 'Could not reach the local helper.'; }
+    }
+    return false;
+  }
+
+  function scheduleSave(){
+    if(!hasAttemptedLoad) return; // don't overwrite a prior save before we've tried loading it
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(doSave, 700);
+  }
+
+  async function doSave(){
+    try{
+      await fetch(HELPER_URL + '/state', {
+        method: 'POST', mode: 'cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(serializeState())
+      });
+    }catch(e){ /* helper not running; the status dot already communicates this */ }
+  }
+
+  saveNowBtn.addEventListener('click', async () => {
+    toast(prefsToast, null, '');
+    try{
+      await fetch(HELPER_URL + '/state', {
+        method: 'POST', mode: 'cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(serializeState())
+      });
+      toast(prefsToast, 'ok', 'Saved.');
+    }catch(e){
+      toast(prefsToast, 'err', 'Could not reach the local helper.');
+    }
+  });
+
+  reloadPrefsBtn.addEventListener('click', () => loadSavedState(true));
+
+  // ---------- Named save states (5 slots, named by date) ----------
+  function renderSlots(slots){
+    const previous = slotSelect.value;
+    slotSelect.innerHTML = '';
+    if(!slots || !slots.length){
+      const o = document.createElement('option');
+      o.value = ''; o.textContent = 'No saved states yet';
+      slotSelect.appendChild(o);
+      return;
+    }
+    slots.forEach(s => {
+      const o = document.createElement('option');
+      o.value = s.name;
+      o.textContent = s.name + '  ·  saved ' + s.saved_at;
+      slotSelect.appendChild(o);
+    });
+    if(slots.some(s => s.name === previous)) slotSelect.value = previous;
+  }
+
+  async function refreshSlots(){
+    try{
+      const res = await fetch(HELPER_URL + '/states', { mode: 'cors' });
+      if(res.ok){
+        const data = await res.json();
+        renderSlots(data.states);
+      }
+    }catch(e){ /* helper offline; the status dot says so already */ }
+  }
+
+  saveStateBtn.addEventListener('click', async () => {
+    saveStateBtn.disabled = true;
+    try{
+      const res = await fetch(HELPER_URL + '/states/save', {
+        method: 'POST', mode: 'cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: serializeState() })
+      });
+      const data = await res.json();
+      if(res.ok){
+        renderSlots(data.states);
+        slotSelect.value = data.name;
+        toast(slotToast, 'ok', data.dropped
+          ? `Saved as ${data.name}. Replaced the oldest state, ${data.dropped}.`
+          : `Saved as ${data.name}.`);
+      } else {
+        toast(slotToast, 'err', 'Helper error: ' + (data.error || 'unknown error'));
+      }
+    }catch(e){
+      toast(slotToast, 'err', 'Could not reach the local helper.');
+    }
+    saveStateBtn.disabled = false;
+  });
+
+  loadStateBtn.addEventListener('click', async () => {
+    const name = slotSelect.value;
+    if(!name){ toast(slotToast, 'info', 'Pick a save state first.'); return; }
+    loadStateBtn.disabled = true;
+    try{
+      const res = await fetch(HELPER_URL + '/states/load', {
+        method: 'POST', mode: 'cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+      const data = await res.json();
+      if(res.ok){
+        applyLoadedState(data.data);
+        toast(slotToast, 'ok', `Loaded ${name}.`);
+      } else {
+        toast(slotToast, 'err', data.error || 'Could not load that state.');
+      }
+    }catch(e){
+      toast(slotToast, 'err', 'Could not reach the local helper.');
+    }
+    loadStateBtn.disabled = false;
+  });
+
+  deleteStateBtn.addEventListener('click', async () => {
+    const name = slotSelect.value;
+    if(!name){ toast(slotToast, 'info', 'Pick a save state first.'); return; }
+    try{
+      const res = await fetch(HELPER_URL + '/states/delete', {
+        method: 'POST', mode: 'cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+      const data = await res.json();
+      if(res.ok){
+        renderSlots(data.states);
+        toast(slotToast, 'ok', `Deleted ${name}.`);
+      }
+    }catch(e){
+      toast(slotToast, 'err', 'Could not reach the local helper.');
+    }
+  });
+
+  // ---------- Folders ----------
+  let manualTarget = null;
+
+  function showFolders(cfg){
+    if(!cfg) return;
+    wallpaperDirBox.textContent = cfg.wallpaper_dir || '—';
+    generatedDirBox.textContent = cfg.generated_dir || '—';
+    if(cfg.app_dir) appDirBox.textContent = 'App folder: ' + cfg.app_dir;
+  }
+
+  resetFoldersBtn.addEventListener('click', async () => {
+    try{
+      const res = await fetch(HELPER_URL + '/config', {
+        method: 'POST', mode: 'cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reset: true })
+      });
+      const data = await res.json();
+      if(res.ok){
+        showFolders(data);
+        manualPathField.style.display = 'none';
+        toast(folderToast, 'ok', 'Both folders are back inside the app folder. Files already written elsewhere stay where they are.');
+      }
+    }catch(e){
+      toast(folderToast, 'err', 'Could not reach the local helper.');
+    }
+  });
+
+  async function refreshFolders(){
+    try{
+      const res = await fetch(HELPER_URL + '/config', { mode: 'cors' });
+      if(res.ok) showFolders(await res.json());
+    }catch(e){ /* offline */ }
+  }
+
+  async function pickFolder(which){
+    toast(folderToast, 'info', 'Pick a folder in the window that just opened…');
+    try{
+      const res = await fetch(HELPER_URL + '/pick-folder', {
+        method: 'POST', mode: 'cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ which })
+      });
+      const data = await res.json();
+      if(res.ok && data.status === 'saved'){
+        showFolders(data);
+        toast(folderToast, 'ok', 'Folder set to ' + data.path);
+      } else if(res.ok){
+        toast(folderToast, 'info', 'Kept the current folder.');
+      } else {
+        // No Tk on this machine — fall back to typing a path.
+        manualTarget = which;
+        manualPathField.style.display = 'block';
+        manualPathInput.value = (which === 'wallpaper' ? wallpaperDirBox : generatedDirBox).textContent;
+        manualPathInput.focus();
+        toast(folderToast, 'err', data.error || 'Folder picker unavailable.');
+      }
+    }catch(e){
+      toast(folderToast, 'err', 'Could not reach the local helper.');
+    }
+  }
+
+  pickWallpaperDirBtn.addEventListener('click', () => pickFolder('wallpaper'));
+  pickGeneratedDirBtn.addEventListener('click', () => pickFolder('generated'));
+
+  manualPathSaveBtn.addEventListener('click', async () => {
+    const value = manualPathInput.value.trim();
+    if(!value || !manualTarget) return;
+    const key = manualTarget === 'wallpaper' ? 'wallpaper_dir' : 'generated_dir';
+    try{
+      const res = await fetch(HELPER_URL + '/config', {
+        method: 'POST', mode: 'cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [key]: value })
+      });
+      const data = await res.json();
+      if(res.ok){
+        showFolders(data);
+        manualPathField.style.display = 'none';
+        toast(folderToast, 'ok', 'Folder set to ' + data[key]);
+      } else {
+        toast(folderToast, 'err', data.error || 'Could not use that path.');
+      }
+    }catch(e){
+      toast(folderToast, 'err', 'Could not reach the local helper.');
+    }
+  });
+
+  manualPathCancelBtn.addEventListener('click', () => {
+    manualPathField.style.display = 'none';
+    toast(folderToast, null, '');
+  });
+
+  async function openFolder(which){
+    try{
+      const res = await fetch(HELPER_URL + '/open-folder', {
+        method: 'POST', mode: 'cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ which })
+      });
+      const data = await res.json();
+      if(res.ok) toast(folderToast, 'ok', 'Opened ' + data.path);
+      else toast(folderToast, 'err', data.error || 'Could not open that folder.');
+    }catch(e){
+      toast(folderToast, 'err', 'Could not reach the local helper.');
+    }
+  }
+
+  openWallpaperBtn.addEventListener('click', () => openFolder('wallpaper'));
+  openGeneratedBtn.addEventListener('click', () => openFolder('generated'));
+
+  // ---------- Local helper: status + apply ----------
+  async function checkHelper(){
+    try{
+      const res = await fetch(HELPER_URL + '/ping', { method: 'GET', mode: 'cors' });
+      if(res.ok){
+        const info = await res.json().catch(() => ({}));
+        state.helperConnected = true;
+        statusDot.className = 'dot on';
+        statusText.textContent = 'Connected — ready to apply wallpapers.';
+        applyBtn.disabled = false;
+        if(info.frozen){
+          setupHelp.style.display = 'none';
+          frozenHelp.style.display = 'block';
+        }
+        if(!hasAttemptedLoad){
+          hasAttemptedLoad = true;
+          await loadSavedState(false);
+          await refreshSlots();
+          await refreshFolders();
+        }
+        return;
+      }
+    }catch(e){ /* fall through */ }
+    state.helperConnected = false;
+    statusDot.className = 'dot off';
+    statusText.textContent = 'Not running — download and start it below.';
+  }
+  checkHelper();
+  setInterval(checkHelper, 4000);
+
+  applyBtn.addEventListener('click', async () => {
+    if(!state.lastDataUrl) return;
+    applyBtn.disabled = true;
+    applyToast.className = 'toast';
+    try{
+      const res = await fetch(HELPER_URL + '/apply', {
+        method: 'POST',
+        mode: 'cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          image_base64: state.lastDataUrl,
+          filename: state.lastFilename,
+          source_path: state.lastSavedPath
+        })
+      });
+      const data = await res.json();
+      if(res.ok){
+        applyToast.className = 'toast ok';
+        applyToast.textContent = data.backup_path
+          ? `Applied. Previous wallpaper backed up to ${data.backup_path}`
+          : 'Applied. (No previous wallpaper file was found to back up.)';
+      } else {
+        applyToast.className = 'toast err';
+        applyToast.textContent = 'Helper error: ' + (data.error || 'unknown error');
+      }
+    }catch(e){
+      applyToast.className = 'toast err';
+      applyToast.textContent = 'Could not reach the local helper. Is it still running?';
+    }
+    applyBtn.disabled = false;
+  });
+
+  // These pull the real files off the running helper rather than a second copy
+  // pasted into this page, so they can't drift out of sync with it.
+  function downloadFromHelper(name){
+    if(!state.helperConnected){
+      alert('Start the helper first — these buttons hand you the copy it is running.');
+      return;
+    }
+    const a = document.createElement('a');
+    a.href = HELPER_URL + '/download/' + name;
+    a.download = name;
+    a.click();
+  }
+
+  downloadServerBtn.addEventListener('click', () => downloadFromHelper('wallpaper_server.py'));
+  downloadBatBtn.addEventListener('click', () => downloadFromHelper('start.bat'));
+  downloadCommandBtn.addEventListener('click', () => downloadFromHelper('start.command'));
+
+  // ---------- init ----------
+  const l1 = newLayer();
+  l1.text = "Good Morning";
+  l1.size = 96;
+  l1.y = 0.42;
+  const l2 = newLayer();
+  l2.text = "Make today count";
+  l2.size = 40;
+  l2.bold = false;
+  l2.y = 0.52;
+  state.layers.push(l1, l2);
+  renderLayerList();
+  drawScene();
+
+})();
+</script>
+</body>
+</html>
