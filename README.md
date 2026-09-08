@@ -34,24 +34,6 @@ If you'd rather not use a packaged build, you need Python 3.9 or newer:
 Both find Python, start the server and open the page. If Python is missing they
 say so and offer to install it rather than failing silently.
 
-## Building the release zips
-
-The executables can't be cross-compiled: a Windows build has to happen on
-Windows and a macOS build on macOS.
-
-**With GitHub Actions (no Windows or Mac needed).** Push a tag and the workflow
-builds all three zips and attaches them to a release:
-
-```
-git tag v1.0
-git push origin v1.0
-```
-
-Or run it by hand from the Actions tab. Each build is smoke-tested — started,
-pinged, stopped — so a bundle that compiles but can't run fails the job.
-
-**On your own machine.** With Python 3 installed, run `build_windows.bat` on
-Windows or `./build_macos.sh` on a Mac. Each produces one zip, ready to upload.
 
 ## Layout
 
