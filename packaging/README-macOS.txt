@@ -31,17 +31,6 @@ Return:
 That removes the download quarantine flag. Then try opening it again.
 
 
-Intel vs Apple Silicon
-----------------------
-There are two macOS downloads. If you took the wrong one you'll see
-"Bad CPU type in executable".
-
-  Apple Silicon (M1 and later)  ->  macOS-AppleSilicon
-  Intel                         ->  macOS-Intel
-
-Apple menu > About This Mac tells you which you have.
-
-
 Where your files go
 -------------------
 Everything lives in this same folder:
