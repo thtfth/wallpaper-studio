@@ -12,10 +12,10 @@ In the packaged builds it's inside the app; nothing gets installed.
 Grab the zip for your machine from
 [Releases](../../releases). Nothing else is needed — Python is inside the app.
 
-| Machine | Download |
-| --- | --- |
-| Windows 10/11 | `WallpaperStudio-Windows-x64.zip` |
-| Mac, M1 or later | `WallpaperStudio-macOS-AppleSilicon.zip` 
+| Machine | Download | Lastest verison |
+| --- | --- | --- |
+| Windows 10/11 | `WallpaperStudio-Windows-x64.zip` | v0.1 |
+| Mac, M1 or later | `WallpaperStudio-macOS-AppleSilicon.zip` | v0.1 |
 
 Unzip it somewhere you'll keep it, then read the `README.txt` inside — on macOS
 the first launch needs a right-click → Open, because the app isn't signed with a
