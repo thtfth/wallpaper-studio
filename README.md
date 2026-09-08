@@ -15,8 +15,7 @@ Grab the zip for your machine from
 | Machine | Download |
 | --- | --- |
 | Windows 10/11 | `WallpaperStudio-Windows-x64.zip` |
-| Mac, M1 or later | `WallpaperStudio-macOS-AppleSilicon.zip` |
-| Mac, Intel | `WallpaperStudio-macOS-Intel.zip` |
+| Mac, M1 or later | `WallpaperStudio-macOS-AppleSilicon.zip` 
 
 Unzip it somewhere you'll keep it, then read the `README.txt` inside — on macOS
 the first launch needs a right-click → Open, because the app isn't signed with a
