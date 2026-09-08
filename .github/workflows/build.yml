@@ -19,9 +19,7 @@ jobs:
             label: Windows-x64
           - os: macos-14
             label: macOS-AppleSilicon
-          - os: macos-13
-            label: macOS-Intel
-
+            
     steps:
       - uses: actions/checkout@v4
 
