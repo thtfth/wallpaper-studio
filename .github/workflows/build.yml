@@ -1,0 +1,88 @@
+name: Build release zips
+
+# Run it by hand from the Actions tab, or push a tag like v1.0 to also attach
+# the zips to a GitHub Release.
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            label: Windows-x64
+          - os: macos-14
+            label: macOS-AppleSilicon
+          - os: macos-13
+            label: macOS-Intel
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PyInstaller
+        run: python -m pip install --upgrade pip pyinstaller
+
+      - name: Build
+        run: pyinstaller wallpaper-studio.spec --noconfirm
+
+      # Windows: Compress-Archive is built in and file permissions don't matter.
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $stage = "stage/Wallpaper Studio"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item "dist/WallpaperStudio.exe" $stage
+          Copy-Item "packaging/README-Windows.txt" "$stage/README.txt"
+          Compress-Archive -Path "stage/Wallpaper Studio" -DestinationPath "WallpaperStudio-${{ matrix.label }}.zip"
+
+      # macOS: ditto rather than zip, so the executable bit survives the round
+      # trip. A zip that loses it means the app won't launch on double-click.
+      - name: Package (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          stage="stage/Wallpaper Studio"
+          mkdir -p "$stage"
+          cp "dist/Wallpaper Studio" "$stage/"
+          chmod +x "$stage/Wallpaper Studio"
+          cp packaging/README-macOS.txt "$stage/README.txt"
+          ditto -c -k --sequesterRsrc --keepParent "stage/Wallpaper Studio" "WallpaperStudio-${{ matrix.label }}.zip"
+
+      - name: Smoke test the build
+        shell: bash
+        run: |
+          # Start it, confirm it answers, then stop it. Catches a bundle that
+          # builds but can't run — a missing hidden import, say.
+          cd "stage/Wallpaper Studio"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            ./WallpaperStudio.exe --no-browser &
+          else
+            "./Wallpaper Studio" --no-browser &
+          fi
+          pid=$!
+          sleep 12
+          curl --fail --silent --show-error http://127.0.0.1:8765/ping
+          echo
+          kill $pid 2>/dev/null || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WallpaperStudio-${{ matrix.label }}
+          path: WallpaperStudio-${{ matrix.label }}.zip
+          if-no-files-found: error
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: WallpaperStudio-${{ matrix.label }}.zip
